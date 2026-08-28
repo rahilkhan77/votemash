@@ -37,7 +37,7 @@ export const ParticipantInputSchema = z.object({
   categoryId: z.string().min(1, 'Invalid category ID'),
   description: z.string().max(500, 'Description must be under 500 characters'),
   websiteUrl: z.string().url('Invalid website URL').optional().or(z.literal('')),
-  logoUrl: z.string().url('Invalid logo URL').optional().or(z.literal('')),
+  logoUrl: z.string().max(2_800_000, 'Logo is too large').refine((value) => value === '' || value.startsWith('data:image/') || URL.canParse(value), 'Invalid logo URL').optional(),
 });
 
 // Category schema

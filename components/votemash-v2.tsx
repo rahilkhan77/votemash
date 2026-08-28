@@ -345,6 +345,50 @@ function EnterLeague() {
   const [form, setForm] = useState({ name: '', type: 'product', categoryId: 'ai-tools', description: '', websiteUrl: '', logoUrl: '' })
   const [status, setStatus] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [preview, setPreview] = useState<any>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [logoEdited, setLogoEdited] = useState(false)
+
+  useEffect(() => {
+    const parsed = form.websiteUrl ? (() => { try { return new URL(form.websiteUrl) } catch { return null } })() : null
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) return
+
+    const timer = window.setTimeout(async () => {
+      setPreviewLoading(true)
+      setStatus('')
+      try {
+        const response = await fetch('/api/participants/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: form.websiteUrl }) })
+        const payload = await response.json()
+        if (!response.ok) throw new Error(payload.error?.message || 'Could not fetch website details')
+        setPreview(payload.data)
+        setPreviewUrl(form.websiteUrl)
+        setForm((current) => ({ ...current, name: current.name || payload.data.siteName || payload.data.title || '', description: current.description || payload.data.description || '' , logoUrl: logoEdited ? current.logoUrl : payload.data.logoUrl || '' }))
+      } catch (error) {
+        setPreview(null)
+        setStatus("Couldn't fetch website details. You can enter them manually.")
+      } finally {
+        setPreviewLoading(false)
+      }
+    }, 500)
+
+    return () => window.clearTimeout(timer)
+  }, [form.websiteUrl, logoEdited])
+
+  const uploadLogo = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setStatus('Logo must be a PNG, JPEG, or WebP under 2 MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setLogoEdited(true)
+      setForm((current) => ({ ...current, logoUrl: typeof reader.result === 'string' ? reader.result : current.logoUrl }))
+    }
+    reader.readAsDataURL(file)
+  }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -387,13 +431,25 @@ function EnterLeague() {
       </div>
       <div className="price-card entry-form" style={{ textAlign: 'center', padding: '40px' }}>
         <form onSubmit={submit} style={{ display: 'grid', gap: '12px', textAlign: 'left' }}>
+          <input required type="url" placeholder="Website URL" value={form.websiteUrl} onChange={(event) => setForm({ ...form, websiteUrl: event.target.value })} />
+          {previewLoading && <p aria-live="polite">Fetching website details...</p>}
+          {preview && previewUrl === form.websiteUrl && (
+            <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {preview.logoUrl && <Image src={preview.logoUrl} alt="Website logo preview" width={48} height={48} unoptimized loader={({ src }) => src} />}
+              <div>
+                <strong>{preview.siteName || preview.title || form.name}</strong>
+                <p style={{ margin: '4px 0 0' }}>{preview.description || 'Review and edit the details before entering.'}</p>
+              </div>
+            </div>
+          )}
           <input required placeholder="Product name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
             <option value="product">Product</option><option value="startup">Startup</option><option value="ai_tool">AI tool</option><option value="developer_tool">Developer tool</option>
           </select>
           <select value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}>{categories.filter((category) => category.id).map((category) => <option key={category.slug} value={category.slug}>{category.name}</option>)}</select>
           <textarea required placeholder="Describe your product" maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-          <input type="url" placeholder="Website URL" value={form.websiteUrl} onChange={(event) => setForm({ ...form, websiteUrl: event.target.value })} />
+          <input type="url" placeholder="Logo URL (optional)" value={form.logoUrl.startsWith('data:') ? '' : form.logoUrl} onChange={(event) => { setLogoEdited(true); setForm({ ...form, logoUrl: event.target.value }) }} />
+          <input type="file" accept="image/png,image/jpeg,image/webp" aria-label="Upload logo" onChange={uploadLogo} />
           <button type="submit" disabled={submitting}>{submitting ? 'Submitting...' : 'Enter the League'}</button>
           {status && <p aria-live="polite">{status}</p>}
         </form>
