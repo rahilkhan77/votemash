@@ -58,32 +58,46 @@ export async function GET(request: NextRequest) {
     }
 
     // Format response (don't expose database internals)
+    const battleRecord = battle as any;
+    const participantA = Array.isArray(battleRecord.participants) ? battleRecord.participants[0] : battleRecord.participants;
+    const participantB = Array.isArray(battleRecord.participants_b) ? battleRecord.participants_b[0] : battleRecord.participants_b;
+    const league = Array.isArray(battleRecord.leagues) ? battleRecord.leagues[0] : battleRecord.leagues;
+    if (!participantA || !participantB || !league) {
+      return NextResponse.json(
+        { success: false, error: { code: 'INVALID_DATA', message: 'Battle data is incomplete' } },
+        { status: 500 }
+      );
+    }
+
     const response = NextResponse.json(
       {
         success: true,
         data: {
-          id: battle.id,
-          leagueId: battle.league_id,
+          id: battleRecord.id,
+          leagueId: battleRecord.league_id,
           participantA: {
-            id: battle.participants.id,
-            name: battle.participants.name,
-            slug: battle.participants.slug,
-            logo: battle.participants.logo_url,
-            description: battle.participants.description,
+            id: participantA.id,
+            name: participantA.name,
+            slug: participantA.slug,
+            logo: participantA.logo_url,
+            description: participantA.description,
           },
           participantB: {
-            id: battle.participants_b.id,
-            name: battle.participants_b.name,
-            slug: battle.participants_b.slug,
-            logo: battle.participants_b.logo_url,
-            description: battle.participants_b.description,
+            id: participantB.id,
+            name: participantB.name,
+            slug: participantB.slug,
+            logo: participantB.logo_url,
+            description: participantB.description,
           },
-          votesA: battle.votes_a,
-          votesB: battle.votes_b,
-          totalVotes: battle.total_votes,
-          percentageA: battle.total_votes > 0 ? Math.round((battle.votes_a / battle.total_votes) * 100) : 50,
-          percentageB: battle.total_votes > 0 ? Math.round((battle.votes_b / battle.total_votes) * 100) : 50,
-          leagueEndAt: battle.leagues.end_at,
+          votesA: battleRecord.votes_a,
+          votesB: battleRecord.votes_b,
+          totalVotes: battleRecord.total_votes,
+          percentageA: battleRecord.total_votes > 0 ? Math.round((battleRecord.votes_a / battleRecord.total_votes) * 100) : 50,
+          percentageB: battleRecord.total_votes > 0 ? Math.round((battleRecord.votes_b / battleRecord.total_votes) * 100) : 50,
+          league,
+          category: league.category_id,
+          endAt: league.end_at,
+          leagueEndAt: league.end_at,
         },
       },
       { status: 200 }

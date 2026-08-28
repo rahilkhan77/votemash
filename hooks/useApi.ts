@@ -70,7 +70,7 @@ interface LeaderboardData {
  */
 export function useNextBattle(categoryId?: string) {
   const [battle, setBattle] = useState<Battle | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
@@ -80,10 +80,14 @@ export function useNextBattle(categoryId?: string) {
       const params = new URLSearchParams();
       if (categoryId) params.append('categoryId', categoryId);
 
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 10000);
       const response = await fetch(`/api/battles/next?${params}`, {
         method: 'GET',
         credentials: 'include',
+        signal: controller.signal,
       });
+      window.clearTimeout(timeout);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -97,7 +101,7 @@ export function useNextBattle(categoryId?: string) {
         setBattle(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch battle');
+      setError(err instanceof DOMException && err.name === 'AbortError' ? 'Request timed out' : err instanceof Error ? err.message : 'Failed to fetch battle');
       setBattle(null);
     } finally {
       setLoading(false);
@@ -110,9 +114,7 @@ export function useNextBattle(categoryId?: string) {
     }, 0);
 
     return () => window.clearTimeout(fetchBattle);
-    // refetch is intentionally recreated on each render; categoryId controls this effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId]);
+  }, [categoryId, refetch]);
 
   return { battle, loading, error, refetch };
 }

@@ -13,6 +13,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin';
  */
 export async function getNextBattle(categoryId?: string, voterTokenHash?: string) {
   const supabase = await getSupabaseServerClient();
+  const admin = getSupabaseAdmin() as any;
 
   let query = supabase
     .from('battles')
@@ -28,12 +29,14 @@ export async function getNextBattle(categoryId?: string, voterTokenHash?: string
       total_votes,
       started_at,
       ended_at,
-      leagues(id, end_at, category_id),
-      participants!battles_participant_a_id_fkey(id, name, slug, logo_url, description),
-      participants_b:participants!battles_participant_b_id_fkey(id, name, slug, logo_url, description)
+      leagues!inner(id, end_at, category_id),
+      participants!battles_participant_a_id_fkey!inner(id, name, slug, logo_url, description),
+      participants_b:participants!battles_participant_b_id_fkey!inner(id, name, slug, logo_url, description)
     `
     )
-    .eq('battles.status', 'active');
+    .eq('battles.status', 'active')
+    .eq('leagues.status', 'active')
+    .gte('leagues.end_at', new Date().toISOString())
 
   // Filter by category if provided
   if (categoryId) {
@@ -46,11 +49,11 @@ export async function getNextBattle(categoryId?: string, voterTokenHash?: string
   }
 
   // Get eligible battles (not voted by this voter)
-  const { data: battles, error } = await query.limit(10);
+  const { data: battles, error } = await query.order('created_at', { ascending: true }).limit(10);
 
   if (error) {
     console.error('Error fetching battles:', error);
-    return null;
+    throw new Error('Failed to query eligible battles');
   }
 
   if (!battles || battles.length === 0) {
@@ -59,7 +62,7 @@ export async function getNextBattle(categoryId?: string, voterTokenHash?: string
 
   // If voterTokenHash is provided, filter out battles already voted
   if (voterTokenHash) {
-    const { data: votedBattleIds } = await supabase
+    const { data: votedBattleIds } = await admin
       .from('votes')
       .select('battle_id')
       .eq('voter_token_hash', voterTokenHash);

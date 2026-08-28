@@ -205,13 +205,14 @@ function BattleView({ categorySlug, setCategorySlug }: { categorySlug: string; s
         <Champion />
         <main className="battle-section">
           <LeagueStatus leagueEndAt={battle?.leagueEndAt || null} categoryName={category.name} />
-          <p className="error-message">Error loading battle. Please refresh.</p>
+          <p className="error-message">Couldn&apos;t load the next battle. Please retry.</p>
+          <button onClick={() => void refetch()}>Retry</button>
         </main>
       </>
     )
   }
 
-  if (loading || !battle) {
+  if (loading) {
     return (
       <>
         <Champion />
@@ -220,6 +221,19 @@ function BattleView({ categorySlug, setCategorySlug }: { categorySlug: string; s
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
             <Loader size={40} className="animate-spin" />
           </div>
+        </main>
+      </>
+    )
+  }
+
+  if (!battle) {
+    return (
+      <>
+        <Champion />
+        <main className="battle-section">
+          <LeagueStatus leagueEndAt={null} categoryName={category.name} />
+          <p>No battles available right now.</p>
+          <Link href="/leaderboard">Check leaderboard</Link>
         </main>
       </>
     )
