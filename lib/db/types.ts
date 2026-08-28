@@ -138,7 +138,7 @@ export type PricingTier = 'free' | 'early_access' | 'standard';
 export type Payment = {
   id: string;
   participant_id: string | null;
-  provider: 'dodo' | 'stripe'; // stripe is historical migration data only
+  provider: 'dodo';
   provider_checkout_id: string;
   provider_payment_id: string | null;
   amount: number;

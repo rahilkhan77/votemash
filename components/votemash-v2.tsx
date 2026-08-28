@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { ArrowRight, Check, Copy, ImagePlus, Menu, Share2, Trophy, X, Loader } from 'lucide-react'
 import { useNextBattle, useVote, useLeaderboard } from '@/hooks/useApi'
@@ -26,7 +27,7 @@ function Logo({ logo, name, large = false }: { logo: string | null; name: string
   return (
     <div className={`participant-logo ${large ? 'large' : ''}`}>
       {logo && !showFallback ? (
-        <img src={logo} alt={`${name} logo`} onError={() => setShowFallback(true)} />
+        <Image src={logo} alt={`${name} logo`} width={large ? 72 : 34} height={large ? 72 : 34} onError={() => setShowFallback(true)} />
       ) : null}
       {!logo || showFallback ? <span>{name.slice(0, 2).toUpperCase()}</span> : null}
     </div>

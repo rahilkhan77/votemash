@@ -1,185 +1,49 @@
-/**
- * Seed database with initial categories and participants
- * Run with: npx ts-node scripts/seed.ts
- */
+import { config } from 'dotenv'
+import { query, withTransaction } from '../lib/db/client'
 
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase credentials in environment variables');
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-});
+config({ path: '.env.local' })
 
 const categories = [
-  { name: 'AI Tools', slug: 'ai-tools', description: 'AI-powered tools and assistants', icon: '🤖', sort_order: 1 },
-  { name: 'Startups', slug: 'startups', description: 'Innovative startup companies', icon: '🚀', sort_order: 2 },
-  { name: 'Developer Tools', slug: 'developer-tools', description: 'Tools for software development', icon: '⚙️', sort_order: 3 },
-  { name: 'Apps', slug: 'apps', description: 'Software applications', icon: '📱', sort_order: 4 },
-  { name: 'Products', slug: 'products', description: 'Popular consumer products', icon: '📦', sort_order: 5 },
-  { name: 'Design Tools', slug: 'design-tools', description: 'Design and creative tools', icon: '🎨', sort_order: 6 },
-  { name: 'Productivity', slug: 'productivity', description: 'Productivity and organization tools', icon: '⏰', sort_order: 7 },
-  { name: 'Games', slug: 'games', description: 'Gaming platforms and games', icon: '🎮', sort_order: 8 },
-];
+  ['AI Tools', 'ai-tools', 'AI-powered tools and assistants', 1],
+  ['Startups', 'startups', 'Innovative startup companies', 2],
+  ['Developer Tools', 'developer-tools', 'Tools for software development', 3],
+  ['Apps', 'apps', 'Software applications', 4],
+  ['Products', 'products', 'Popular consumer products', 5],
+  ['Design Tools', 'design-tools', 'Design and creative tools', 6],
+  ['Productivity', 'productivity', 'Productivity and organization tools', 7],
+  ['Games', 'games', 'Gaming platforms and games', 8],
+] as const
 
 const participants = [
-  // AI Tools
-  { name: 'Cursor', slug: 'cursor', type: 'ai_tool', category_slug: 'ai-tools', description: 'AI coding assistant', logo_url: 'https://www.cursor.com/favicon.svg', website_url: 'https://cursor.com' },
-  { name: 'VS Code', slug: 'vscode', type: 'developer_tool', category_slug: 'ai-tools', description: 'Code editor', logo_url: 'https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/vscode/vscode-original.svg', website_url: 'https://code.visualstudio.com' },
-  { name: 'Claude', slug: 'claude', type: 'ai_tool', category_slug: 'ai-tools', description: 'AI assistant by Anthropic', logo_url: 'https://cdn.simpleicons.org/anthropic', website_url: 'https://claude.ai' },
-  { name: 'Gemini', slug: 'gemini', type: 'ai_tool', category_slug: 'ai-tools', description: 'Google AI assistant', logo_url: 'https://cdn.simpleicons.org/googlegemini', website_url: 'https://gemini.google.com' },
-  { name: 'ChatGPT', slug: 'chatgpt', type: 'ai_tool', category_slug: 'ai-tools', description: 'OpenAI AI assistant', logo_url: 'https://cdn.simpleicons.org/openai', website_url: 'https://chatgpt.com' },
-  { name: 'Perplexity', slug: 'perplexity', type: 'ai_tool', category_slug: 'ai-tools', description: 'AI search engine', logo_url: 'https://cdn.simpleicons.org/perplexity', website_url: 'https://perplexity.ai' },
-  { name: 'Windsurf', slug: 'windsurf', type: 'ai_tool', category_slug: 'ai-tools', description: 'Agentic IDE', logo_url: 'https://cdn.simpleicons.org/windsurf', website_url: 'https://windsurf.com' },
-  { name: 'GitHub Copilot', slug: 'copilot', type: 'ai_tool', category_slug: 'ai-tools', description: 'AI pair programmer', logo_url: 'https://cdn.simpleicons.org/githubcopilot', website_url: 'https://github.com/features/copilot' },
-  { name: 'v0', slug: 'v0', type: 'ai_tool', category_slug: 'ai-tools', description: 'AI app builder', logo_url: 'https://cdn.simpleicons.org/vercel', website_url: 'https://v0.dev' },
-  { name: 'Lovable', slug: 'lovable', type: 'ai_tool', category_slug: 'ai-tools', description: 'AI app builder', logo_url: 'https://cdn.simpleicons.org/lovable', website_url: 'https://lovable.dev' },
-
-  // Startups
-  { name: 'Vercel', slug: 'vercel', type: 'startup', category_slug: 'startups', description: 'Cloud platform', logo_url: 'https://cdn.simpleicons.org/vercel', website_url: 'https://vercel.com' },
-  { name: 'Linear', slug: 'linear', type: 'startup', category_slug: 'startups', description: 'Product management', logo_url: 'https://cdn.simpleicons.org/linear', website_url: 'https://linear.app' },
-  { name: 'Notion', slug: 'notion', type: 'startup', category_slug: 'startups', description: 'All-in-one workspace', logo_url: 'https://cdn.simpleicons.org/notion', website_url: 'https://notion.so' },
-  { name: 'Figma', slug: 'figma', type: 'startup', category_slug: 'startups', description: 'Design tool', logo_url: 'https://cdn.simpleicons.org/figma', website_url: 'https://figma.com' },
-  { name: 'Canva', slug: 'canva', type: 'startup', category_slug: 'startups', description: 'Design platform', logo_url: 'https://cdn.simpleicons.org/canva', website_url: 'https://canva.com' },
-
-  // Developer Tools
-  { name: 'GitHub', slug: 'github', type: 'developer_tool', category_slug: 'developer-tools', description: 'Code repository', logo_url: 'https://cdn.simpleicons.org/github', website_url: 'https://github.com' },
-  { name: 'GitLab', slug: 'gitlab', type: 'developer_tool', category_slug: 'developer-tools', description: 'DevOps platform', logo_url: 'https://cdn.simpleicons.org/gitlab', website_url: 'https://gitlab.com' },
-  { name: 'Docker', slug: 'docker', type: 'developer_tool', category_slug: 'developer-tools', description: 'Container platform', logo_url: 'https://cdn.simpleicons.org/docker', website_url: 'https://docker.com' },
-  { name: 'Supabase', slug: 'supabase', type: 'developer_tool', category_slug: 'developer-tools', description: 'Backend platform', logo_url: 'https://cdn.simpleicons.org/supabase', website_url: 'https://supabase.com' },
-  { name: 'Postman', slug: 'postman', type: 'developer_tool', category_slug: 'developer-tools', description: 'API platform', logo_url: 'https://cdn.simpleicons.org/postman', website_url: 'https://postman.com' },
-];
+  ['OpenAI / ChatGPT', 'openai-chatgpt', 'AI assistant for writing, analysis, and creation', 'https://chatgpt.com', null],
+  ['Anthropic / Claude', 'anthropic-claude', 'AI assistant built by Anthropic', 'https://claude.ai', '/logos/anthropic-claude.ico'],
+  ['Google / Gemini', 'google-gemini', 'Google AI assistant for work and creativity', 'https://gemini.google.com', '/logos/google-gemini.svg'],
+  ['Cursor', 'cursor', 'AI-powered code editor', 'https://cursor.com', '/logos/cursor.svg'],
+  ['Perplexity', 'perplexity', 'AI-powered search and answer engine', 'https://www.perplexity.ai', '/logos/perplexity.ico'],
+  ['GitHub Copilot', 'github-copilot', 'AI coding assistant from GitHub', 'https://github.com/features/copilot', '/logos/github-copilot.ico'],
+  ['Windsurf', 'windsurf', 'Agentic development environment', 'https://windsurf.com', '/logos/windsurf.ico'],
+  ['v0', 'v0', 'AI-powered interface builder by Vercel', 'https://v0.dev', '/logos/v0.svg'],
+  ['Lovable', 'lovable', 'AI-powered app development platform', 'https://lovable.dev', '/logos/lovable.ico'],
+  ['Replit', 'replit', 'Collaborative AI-powered development platform', 'https://replit.com', '/logos/replit.png'],
+] as const
 
 async function seed() {
-  try {
-    console.log('🌱 Starting seed...');
-
-    // Clear existing data (optional - comment out for production)
-    // await supabase.from('participants').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    // await supabase.from('categories').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-
-    // Insert categories
-    console.log('📚 Inserting categories...');
-    const { data: categoryData, error: categoryError } = await supabase
-      .from('categories')
-      .insert(categories)
-      .select();
-
-    if (categoryError) {
-      console.error('Error inserting categories:', categoryError);
-      throw categoryError;
+  await withTransaction(async (client) => {
+    for (const [name, slug, description, sortOrder] of categories) await client.query('INSERT INTO categories (name, slug, description, sort_order) VALUES ($1,$2,$3,$4) ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, sort_order = EXCLUDED.sort_order, active = true', [name, slug, description, sortOrder])
+    const category = await client.query<{ id: string }>("SELECT id FROM categories WHERE slug = 'ai-tools'")
+    const categoryId = category.rows[0].id
+    for (const [name, slug, description, websiteUrl, logoUrl] of participants) {
+      await client.query('INSERT INTO participants (name, slug, description, website_url, logo_url, type, category_id, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, website_url = EXCLUDED.website_url, logo_url = EXCLUDED.logo_url, type = EXCLUDED.type, category_id = EXCLUDED.category_id, status = EXCLUDED.status, updated_at = now()', [name, slug, description, websiteUrl, logoUrl, 'ai_tool', categoryId, 'active'])
     }
-
-    console.log(`✅ Inserted ${categoryData?.length} categories`);
-
-    // Create a map of category slugs to IDs
-    const categoryMap = new Map(categoryData?.map((c) => [c.slug, c.id]) || []);
-
-    // Prepare participants with category IDs
-    const participantsWithIds = participants.map((p) => ({
-      name: p.name,
-      slug: p.slug,
-      type: p.type,
-      category_id: categoryMap.get(p.category_slug),
-      description: p.description,
-      logo_url: p.logo_url,
-      website_url: p.website_url,
-      status: 'active',
-    }));
-
-    // Insert participants
-    console.log('👥 Inserting participants...');
-    const { data: participantData, error: participantError } = await supabase
-      .from('participants')
-      .insert(participantsWithIds)
-      .select();
-
-    if (participantError) {
-      console.error('Error inserting participants:', participantError);
-      throw participantError;
-    }
-
-    console.log(`✅ Inserted ${participantData?.length} participants`);
-
-    // Create an initial league
-    console.log('🏆 Creating initial league...');
-    const now = new Date();
-    const startAt = new Date(now.getTime() - 24 * 60 * 60 * 1000); // Started 24 hours ago
-    const endAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Ends in 24 hours
-
-    const { data: leagueData, error: leagueError } = await supabase
-      .from('leagues')
-      .insert({
-        type: 'category',
-        category_id: categoryMap.get('ai-tools'),
-        start_at: startAt.toISOString(),
-        end_at: endAt.toISOString(),
-        status: 'active',
-        league_number: 1,
-      })
-      .select();
-
-    if (leagueError) {
-      console.error('Error creating league:', leagueError);
-      throw leagueError;
-    }
-
-    console.log(`✅ Created league`);
-
-    // Add all AI tool participants to the league
-    const aiToolParticipants = participantData?.filter((p) => categoryMap.get('ai-tools') === p.category_id) || [];
-
-    console.log('🔗 Adding participants to league...');
-    const leagueJoins = aiToolParticipants.map((p) => ({
-      participant_id: p.id,
-      league_id: leagueData?.[0]?.id,
-    }));
-
-    const { error: joinError } = await supabase.from('participant_league_joins').insert(leagueJoins);
-
-    if (joinError) {
-      console.error('Error adding participants to league:', joinError);
-      throw joinError;
-    }
-
-    console.log(`✅ Added ${leagueJoins.length} participants to league`);
-
-    // Initialize participant stats for the league
-    console.log('📊 Initializing participant stats...');
-    const stats = aiToolParticipants.map((p) => ({
-      participant_id: p.id,
-      league_id: leagueData?.[0]?.id,
-      rating: 1500,
-      wins: 0,
-      losses: 0,
-      battle_count: 0,
-      votes_received: 0,
-      win_rate: 0,
-      current_rank: 0,
-    }));
-
-    const { error: statsError } = await supabase.from('participant_stats').insert(stats);
-
-    if (statsError) {
-      console.error('Error initializing stats:', statsError);
-      throw statsError;
-    }
-
-    console.log(`✅ Initialized stats for ${stats.length} participants`);
-
-    console.log('✨ Seed complete!');
-  } catch (error) {
-    console.error('Seed failed:', error);
-    process.exit(1);
-  }
+    const league = await client.query<{ id: string }>("SELECT id FROM leagues WHERE category_id = $1 AND status = 'active' AND end_at >= now() ORDER BY created_at DESC LIMIT 1", [categoryId])
+    let leagueId = league.rows[0]?.id
+    if (!leagueId) leagueId = (await client.query<{ id: string }>("INSERT INTO leagues (type, category_id, start_at, end_at, status, league_number) VALUES ('category',$1,now(),now() + interval '48 hours','active',COALESCE((SELECT max(league_number) + 1 FROM leagues WHERE category_id = $1),1)) RETURNING id", [categoryId])).rows[0].id
+    const seeded = await client.query<{ id: string }>('SELECT id FROM participants WHERE category_id = $1 AND slug = ANY($2::text[]) ORDER BY array_position($2::text[], slug)', [categoryId, participants.map((participant) => participant[1])])
+    for (const participant of seeded.rows) { await client.query('INSERT INTO participant_league_joins (participant_id, league_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [participant.id, leagueId]); await client.query('INSERT INTO participant_stats (participant_id, league_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [participant.id, leagueId]) }
+    for (let left = 0; left < seeded.rows.length; left += 1) for (let right = left + 1; right < seeded.rows.length; right += 1) await client.query('INSERT INTO battles (league_id, participant_a_id, participant_b_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [leagueId, seeded.rows[left].id, seeded.rows[right].id])
+    await client.query("UPDATE battles SET status = 'active', started_at = COALESCE(started_at, now()) WHERE league_id = $1 AND status = 'scheduled' AND id IN (SELECT id FROM battles WHERE league_id = $1 AND status = 'scheduled' ORDER BY created_at LIMIT 10)", [leagueId])
+    console.log(`Seeded ${seeded.rows.length} AI Tools participants in league ${leagueId}`)
+  })
 }
 
-seed();
+seed().catch((error) => { console.error('Seed failed:', error instanceof Error ? error.message : 'Unknown error'); process.exitCode = 1 })

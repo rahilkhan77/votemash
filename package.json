@@ -9,18 +9,19 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "seed": "ts-node scripts/seed.ts"
+    "migrate": "ts-node --compiler-options \"{\\\"module\\\":\\\"commonjs\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/migrate.ts",
+    "seed": "ts-node --compiler-options \"{\\\"module\\\":\\\"commonjs\\\",\\\"moduleResolution\\\":\\\"node\\\"}\" scripts/seed.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
-    "@supabase/ssr": "^0.12.5",
-    "@supabase/supabase-js": "^2.112.4",
     "@vercel/analytics": "1.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dodopayments": "^2.48.0",
+    "dotenv": "^17.4.2",
     "lucide-react": "^1.16.0",
     "next": "16.3.3",
+    "pg": "^8.23.0",
     "react": "^19",
     "react-dom": "^19",
     "shadcn": "^4.11.0",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^24",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9.39.5",

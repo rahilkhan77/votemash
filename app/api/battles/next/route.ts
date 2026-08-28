@@ -1,124 +1,37 @@
-/**
- * GET /api/battles/next
- * Get the next eligible battle for voting
- */
-
-import { NextRequest, NextResponse } from 'next/server';
-import { getNextBattle } from '@/lib/voting/battles';
-import { getVoterTokenFromCookies, createVoterCookieHeader, generateVoterToken, hashVoterToken } from '@/lib/security/voter';
-import { GetNextBattleQuerySchema } from '@/lib/validation/schemas';
+import { NextRequest, NextResponse } from 'next/server'
+import { getNextBattle } from '@/lib/db/queries'
+import { getVoterTokenFromCookies, createVoterCookieHeader, generateVoterToken, hashVoterToken } from '@/lib/security/voter'
+import { GetNextBattleQuerySchema } from '@/lib/validation/schemas'
 
 export async function GET(request: NextRequest) {
   try {
-    // Parse query parameters
-    const url = new URL(request.url);
-    const categoryId = url.searchParams.get('categoryId') || undefined;
-    console.info('[battles/next] route entered', { categoryId: categoryId || null });
-
-    // Validate query
-    const queryValidation = GetNextBattleQuerySchema.safeParse({ categoryId });
-    if (!queryValidation.success) {
-      console.info('[battles/next] invalid category query');
-      return NextResponse.json(
-        {
-          success: false,
-          error: { code: 'INVALID_QUERY', message: 'Invalid query parameters' },
-        },
-        { status: 400 }
-      );
-    }
-
-    // Get or create voter token
-    let voterToken = getVoterTokenFromCookies(request);
-    let newToken = false;
-
-    if (!voterToken) {
-      voterToken = generateVoterToken();
-      newToken = true;
-    }
-
-    const voterTokenHash = hashVoterToken(voterToken);
-
-    // Get next eligible battle
-    const battle = await getNextBattle(categoryId, voterTokenHash);
-
-    if (!battle) {
-      console.info('[battles/next] battle not found');
-      const response = NextResponse.json(
-        {
-          success: true,
-          data: null,
-          message: 'No eligible battles available',
-        },
-        { status: 200 }
-      );
-
-      if (newToken) {
-        response.headers.set('Set-Cookie', createVoterCookieHeader(voterToken));
-      }
-
-      return response;
-    }
-
-    // Format response (don't expose database internals)
-    const battleRecord = battle as any;
-    const participantA = Array.isArray(battleRecord.participants) ? battleRecord.participants[0] : battleRecord.participants;
-    const participantB = Array.isArray(battleRecord.participants_b) ? battleRecord.participants_b[0] : battleRecord.participants_b;
-    const league = Array.isArray(battleRecord.leagues) ? battleRecord.leagues[0] : battleRecord.leagues;
-    if (!participantA || !participantB || !league) {
-      return NextResponse.json(
-        { success: false, error: { code: 'INVALID_DATA', message: 'Battle data is incomplete' } },
-        { status: 500 }
-      );
-    }
-
-    const response = NextResponse.json(
-      {
-        success: true,
-        data: {
-          id: battleRecord.id,
-          leagueId: battleRecord.league_id,
-          participantA: {
-            id: participantA.id,
-            name: participantA.name,
-            slug: participantA.slug,
-            logo: participantA.logo_url,
-            description: participantA.description,
-          },
-          participantB: {
-            id: participantB.id,
-            name: participantB.name,
-            slug: participantB.slug,
-            logo: participantB.logo_url,
-            description: participantB.description,
-          },
-          votesA: battleRecord.votes_a,
-          votesB: battleRecord.votes_b,
-          totalVotes: battleRecord.total_votes,
-          percentageA: battleRecord.total_votes > 0 ? Math.round((battleRecord.votes_a / battleRecord.total_votes) * 100) : 50,
-          percentageB: battleRecord.total_votes > 0 ? Math.round((battleRecord.votes_b / battleRecord.total_votes) * 100) : 50,
-          league,
-          category: league.category_id,
-          endAt: league.end_at,
-          leagueEndAt: league.end_at,
-        },
-      },
-      { status: 200 }
-    );
-
-    if (newToken) {
-      response.headers.set('Set-Cookie', createVoterCookieHeader(voterToken));
-    }
-
-    return response;
+    const categoryId = new URL(request.url).searchParams.get('categoryId') || undefined
+    const validation = GetNextBattleQuerySchema.safeParse({ categoryId })
+    if (!validation.success) return NextResponse.json({ success: false, error: { code: 'INVALID_QUERY', message: 'Invalid query parameters' } }, { status: 400 })
+    let voterToken = getVoterTokenFromCookies(request)
+    const newToken = !voterToken
+    if (!voterToken) voterToken = generateVoterToken()
+    const battle = await getNextBattle(categoryId, hashVoterToken(voterToken))
+    const data = battle ? {
+      id: battle.id,
+      leagueId: battle.league_id,
+      participantA: { ...battle.participant_a, logo: battle.participant_a.logo_url },
+      participantB: { ...battle.participant_b, logo: battle.participant_b.logo_url },
+      votesA: battle.votes_a,
+      votesB: battle.votes_b,
+      totalVotes: battle.total_votes,
+      percentageA: battle.total_votes ? Math.round((battle.votes_a / battle.total_votes) * 100) : 50,
+      percentageB: battle.total_votes ? Math.round((battle.votes_b / battle.total_votes) * 100) : 50,
+      league: battle.league,
+      category: battle.category,
+      endAt: battle.league_end_at,
+      leagueEndAt: battle.league_end_at,
+    } : null
+    const response = NextResponse.json({ success: true, data, message: data ? undefined : 'No eligible battles available' })
+    if (newToken) response.headers.set('Set-Cookie', createVoterCookieHeader(voterToken))
+    return response
   } catch (error) {
-    console.error('[battles/next] route failed', { code: error instanceof Error ? error.name : 'UNKNOWN', message: error instanceof Error ? error.message : 'Unknown error' });
-    return NextResponse.json(
-      {
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
-      },
-      { status: 500 }
-    );
+    console.error('Error in next battle route:', error)
+    return NextResponse.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, { status: 500 })
   }
 }

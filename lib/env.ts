@@ -19,17 +19,12 @@ function getEnv(key: string, isPublic: boolean = false): string {
 }
 
 export const env = {
-  // Public (available to browser)
-  supabase: {
-    url: getEnv('NEXT_PUBLIC_SUPABASE_URL', true),
-    anonKey: getEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', true),
-  },
   app: {
     url: getEnv('NEXT_PUBLIC_APP_URL', true),
   },
 
   // Server-only
-  supabaseServiceKey: () => getEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  databaseUrl: () => getEnv('DATABASE_URL'),
   dodo: {
     apiKey: () => getEnv('DODO_PAYMENTS_API_KEY'),
     webhookSecret: () => getEnv('DODO_WEBHOOK_SECRET'),
@@ -43,9 +38,7 @@ export function validateEnv() {
   if (typeof window === 'undefined') {
     // Server-side validation
     try {
-      getEnv('NEXT_PUBLIC_SUPABASE_URL', true);
-      getEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', true);
-      getEnv('SUPABASE_SERVICE_ROLE_KEY');
+      getEnv('DATABASE_URL');
       getEnv('DODO_PAYMENTS_API_KEY');
       getEnv('DODO_WEBHOOK_SECRET');
       getEnv('DODO_PAYMENTS_PRODUCT_ID_5');

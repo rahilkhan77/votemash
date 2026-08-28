@@ -1,71 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { query, withTransaction } from '@/lib/db/client'
 import { ParticipantInputSchema } from '@/lib/validation/schemas'
 import { getParticipantPrice } from '@/lib/participants/pricing'
 import { activateParticipantInCurrentLeague } from '@/lib/leagues/lifecycle'
 import { createDodoCheckout } from '@/lib/payments/dodo'
 
 export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null)
-  const parsed = ParticipantInputSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid participant data' } }, { status: 400 })
-  }
-
-  const supabase = getSupabaseAdmin()
+  const parsed = ParticipantInputSchema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return NextResponse.json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid participant data' } }, { status: 400 })
   const input = parsed.data
-  const { data: categoryData } = await supabase.from('categories').select('id').or(`id.eq.${input.categoryId},slug.eq.${input.categoryId}`).maybeSingle()
-  const category = categoryData as { id: string } | null
-  if (!category) {
-    return NextResponse.json({ success: false, error: { code: 'INVALID_CATEGORY', message: 'Category not found' } }, { status: 400 })
+  const category = await query<{ id: string }>('SELECT id FROM categories WHERE id::text = $1 OR slug = $1 LIMIT 1', [input.categoryId])
+  if (!category.rows[0]) return NextResponse.json({ success: false, error: { code: 'INVALID_CATEGORY', message: 'Category not found' } }, { status: 400 })
+  const slug = `${input.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`
+  const participant = await withTransaction(async (client) => {
+    const created = await client.query<{ id: string; slug: string; status: string }>('INSERT INTO participants (name, slug, type, category_id, description, website_url, logo_url, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, slug, status', [input.name, slug, input.type, category.rows[0].id, input.description, input.websiteUrl || null, input.logoUrl || null, 'pending'])
+    const count = await client.query<{ count: string }>("SELECT count(*) FROM participants WHERE status = 'active'")
+    const reservation = getParticipantPrice(Number(count.rows[0].count))
+    await client.query('INSERT INTO pricing_reservations (participant_id, pricing_tier, amount, status, expires_at) VALUES ($1,$2,$3,$4,now() + interval \'24 hours\')', [created.rows[0].id, reservation.tier, reservation.amount, reservation.amount === 0 ? 'consumed' : 'reserved'])
+    return { participant: created.rows[0], price: reservation }
+  })
+  if (participant.price.amount === 0) {
+    await query("UPDATE participants SET status = 'active', updated_at = now() WHERE id = $1 AND status = 'pending'", [participant.participant.id])
+    await activateParticipantInCurrentLeague(participant.participant.id, category.rows[0].id)
+    return NextResponse.json({ success: true, data: participant })
   }
-  const slug = input.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  const { data: participantData, error } = await (supabase.from('participants') as any).insert({
-    name: input.name,
-    slug: `${slug}-${Date.now().toString(36)}`,
-    type: input.type,
-    category_id: category.id,
-    description: input.description,
-    website_url: input.websiteUrl || null,
-    logo_url: input.logoUrl || null,
-    status: 'pending',
-  } as any).select('id, slug, status').single()
-
-  const participant = participantData as { id: string; slug: string; status: string } | null
-
-  if (error || !participant) {
-    return NextResponse.json({ success: false, error: { code: 'CREATE_FAILED', message: 'Could not create participant' } }, { status: 500 })
-  }
-
-  const { data: reservationData, error: reservationError } = await (supabase as any).rpc('reserve_pricing_slot', { p_participant_id: participant.id })
-  const reservation = reservationData?.[0] as { pricing_tier: 'free' | 'early_access' | 'standard'; amount: number } | undefined
-  if (reservationError || !reservation) {
-    await (supabase.from('participants') as any).delete().eq('id', participant.id).eq('status', 'pending')
-    return NextResponse.json({ success: false, error: { code: 'PRICING_UNAVAILABLE', message: 'Could not reserve an entry slot' } }, { status: 503 })
-  }
-  const price = getParticipantPrice(reservation.amount === 0 ? 0 : reservation.pricing_tier === 'early_access' ? 10 : 60)
-
-  if (price.amount === 0) {
-    await (supabase.from('participants') as any).update({ status: 'active' }).eq('id', participant.id).eq('status', 'pending')
-    await activateParticipantInCurrentLeague(participant.id, category.id)
-    return NextResponse.json({ success: true, data: { participant, price } })
-  }
-
-  const session = await createDodoCheckout({ participantId: participant.id, amount: price.amount, pricingTier: price.tier as 'early_access' | 'standard' })
-
-  const { error: paymentError } = await supabase.from('payments').insert({
-    participant_id: participant.id,
-    provider: 'dodo',
-    provider_checkout_id: session.session_id,
-    amount: price.amount,
-    currency: 'USD',
-    pricing_tier: price.tier,
-    status: 'pending',
-  } as any)
-
-  if (paymentError || !session.checkout_url) {
+  try {
+    const session = await createDodoCheckout({ participantId: participant.participant.id, amount: participant.price.amount, pricingTier: participant.price.tier as 'early_access' | 'standard' })
+    await query('INSERT INTO payments (participant_id, provider, provider_checkout_id, amount, currency, pricing_tier, status) VALUES ($1,$2,$3,$4,$5,$6,$7)', [participant.participant.id, 'dodo', session.session_id, participant.price.amount, 'USD', participant.price.tier, 'pending'])
+    return NextResponse.json({ success: true, data: { ...participant, checkoutUrl: session.checkout_url } })
+  } catch (error) {
+    console.error('Could not create checkout:', error)
     return NextResponse.json({ success: false, error: { code: 'PAYMENT_SETUP_FAILED', message: 'Could not create checkout' } }, { status: 500 })
   }
-
-  return NextResponse.json({ success: true, data: { participant, price, checkoutUrl: session.checkout_url } })
 }
