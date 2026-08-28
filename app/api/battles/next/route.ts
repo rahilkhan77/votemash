@@ -13,10 +13,12 @@ export async function GET(request: NextRequest) {
     // Parse query parameters
     const url = new URL(request.url);
     const categoryId = url.searchParams.get('categoryId') || undefined;
+    console.info('[battles/next] route entered', { categoryId: categoryId || null });
 
     // Validate query
     const queryValidation = GetNextBattleQuerySchema.safeParse({ categoryId });
     if (!queryValidation.success) {
+      console.info('[battles/next] invalid category query');
       return NextResponse.json(
         {
           success: false,
@@ -41,6 +43,7 @@ export async function GET(request: NextRequest) {
     const battle = await getNextBattle(categoryId, voterTokenHash);
 
     if (!battle) {
+      console.info('[battles/next] battle not found');
       const response = NextResponse.json(
         {
           success: true,
@@ -109,7 +112,7 @@ export async function GET(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error('Error in GET /api/battles/next:', error);
+    console.error('[battles/next] route failed', { code: error instanceof Error ? error.name : 'UNKNOWN', message: error instanceof Error ? error.message : 'Unknown error' });
     return NextResponse.json(
       {
         success: false,

@@ -45,14 +45,16 @@ export async function getNextBattle(categoryId?: string, voterTokenHash?: string
       .select('id')
       .eq('slug', categoryId)
       .maybeSingle()
-    query = query.eq('leagues.category_id', category?.id || categoryId);
+    console.info('[battles/next] category lookup', { found: Boolean(category) });
+    if (!category) return null;
+    query = query.eq('leagues.category_id', category.id);
   }
 
   // Get eligible battles (not voted by this voter)
   const { data: battles, error } = await query.order('created_at', { ascending: true }).limit(10);
 
   if (error) {
-    console.error('Error fetching battles:', error);
+    console.error('[battles/next] battle query failed', { code: error.code, message: error.message });
     throw new Error('Failed to query eligible battles');
   }
 
