@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Battle {
   id: string;
@@ -148,6 +148,7 @@ export function useVote(battleId: string) {
 
       if (data.success && data.data) {
         setResult(data.data);
+        return true;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit vote');
@@ -155,6 +156,8 @@ export function useVote(battleId: string) {
     } finally {
       setLoading(false);
     }
+
+    return false;
   };
 
   useEffect(() => {
@@ -172,12 +175,14 @@ export function useVote(battleId: string) {
 /**
  * Hook to fetch the leaderboard
  */
-export function useLeaderboard(categoryId?: string, limit: number = 50) {
+export function useLeaderboard(categoryId?: string, limit: number = 50, refreshKey: number = 0) {
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
 
   const refetch = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError(null);
     try {
@@ -196,14 +201,16 @@ export function useLeaderboard(categoryId?: string, limit: number = 50) {
 
       const responseData = await response.json();
 
+      if (requestId !== requestSequence.current) return;
       if (responseData.success && responseData.data) {
         setData(responseData.data);
       }
     } catch (err) {
+      if (requestId !== requestSequence.current) return;
       setError(err instanceof Error ? err.message : 'Failed to fetch leaderboard');
       setData(null);
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [categoryId, limit]);
 
@@ -215,7 +222,7 @@ export function useLeaderboard(categoryId?: string, limit: number = 50) {
     return () => window.clearTimeout(fetchLeaderboard);
     // refetch is intentionally recreated on each render; these inputs control this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId, limit]);
+  }, [categoryId, limit, refreshKey]);
 
   return { data, loading, error, refetch };
 }

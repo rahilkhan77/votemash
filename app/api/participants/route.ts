@@ -1,11 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query, withTransaction } from '@/lib/db/client'
+import { getConfiguredRateLimiter, getRateLimitKey, RATE_LIMIT_CONFIG } from '@/lib/security/rate-limit'
+import { getClientIp, hashIpAddress } from '@/lib/security/voter'
 import { ParticipantInputSchema } from '@/lib/validation/schemas'
 import { getParticipantPrice } from '@/lib/participants/pricing'
 import { activateParticipantInCurrentLeague } from '@/lib/leagues/lifecycle'
 import { createDodoCheckout } from '@/lib/payments/dodo'
 
 export async function POST(request: NextRequest) {
+  const limiter = getConfiguredRateLimiter()
+  if (limiter) {
+    const clientIp = getClientIp(request)
+    const ipHash = hashIpAddress(clientIp)
+    const key = getRateLimitKey(['participant', ipHash || 'anonymous'])
+    const decision = await limiter.check(key, RATE_LIMIT_CONFIG.participant.limit, RATE_LIMIT_CONFIG.participant.windowSeconds)
+    if (!decision.allowed) {
+      const headers = decision.retryAfter ? { 'Retry-After': String(decision.retryAfter) } : undefined
+      return NextResponse.json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many submissions. Please wait a moment.' } }, { status: 429, headers })
+    }
+  }
+
   const parsed = ParticipantInputSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid participant data' } }, { status: 400 })
   const input = parsed.data

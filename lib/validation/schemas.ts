@@ -36,7 +36,7 @@ export const ParticipantInputSchema = z.object({
   type: ParticipantTypeSchema,
   categoryId: z.string().min(1, 'Invalid category ID'),
   description: z.string().max(500, 'Description must be under 500 characters'),
-  websiteUrl: z.string().url('Invalid website URL').optional().or(z.literal('')),
+  websiteUrl: z.string().url('Invalid website URL').refine((value) => value === '' || ['http:', 'https:'].includes(new URL(value).protocol), 'Only HTTP(S) website URLs are supported').optional().or(z.literal('')),
   logoUrl: z.string().max(2_800_000, 'Logo is too large').refine((value) => value === '' || value.startsWith('data:image/') || URL.canParse(value), 'Invalid logo URL').optional(),
 });
 

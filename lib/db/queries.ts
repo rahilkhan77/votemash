@@ -72,11 +72,13 @@ export async function submitVote(battleId: string, participantId: string, voterT
 export async function getLeaderboard(categorySlug: string | undefined, limit: number, offset: number) {
   const values: unknown[] = []
   let categoryClause = ''
-  if (categorySlug) { values.push(categorySlug); categoryClause = `AND c.slug = $${values.length}` }
+  if (categorySlug) { values.push(categorySlug); categoryClause = `AND c.slug = $1` }
   const league = await query(`SELECT l.id, l.end_at FROM leagues l JOIN categories c ON c.id = l.category_id WHERE l.status = 'active' AND l.end_at >= now() ${categoryClause} ORDER BY l.created_at DESC LIMIT 1`, values)
   if (!league.rows[0]) return { rows: [], total: 0, leagueEndsAt: null }
-  values.push(league.rows[0].id, limit, offset)
-  const stats = await query(`SELECT s.*, p.id AS participant_id, p.name, p.slug, p.logo_url, p.description, p.type, COUNT(*) OVER() AS total_count FROM participant_stats s JOIN participants p ON p.id = s.participant_id WHERE s.league_id = $${values.length - 2} AND p.status = 'active' ORDER BY s.rating DESC, s.wins DESC, s.battle_count DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values)
+  
+  // Build second query with fresh parameter indices
+  const statsValues = [league.rows[0].id, limit, offset]
+  const stats = await query(`SELECT s.*, p.id AS participant_id, p.name, p.slug, p.logo_url, p.description, p.type, COUNT(*) OVER() AS total_count FROM participant_stats s JOIN participants p ON p.id = s.participant_id WHERE s.league_id = $1 AND p.status = 'active' ORDER BY s.rating DESC, s.wins DESC, s.battle_count DESC LIMIT $2 OFFSET $3`, statsValues)
   return { rows: stats.rows, total: Number(stats.rows[0]?.total_count || 0), leagueEndsAt: league.rows[0].end_at }
 }
 

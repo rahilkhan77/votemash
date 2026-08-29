@@ -2,6 +2,8 @@ import dns from 'node:dns/promises'
 import net from 'node:net'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { getConfiguredRateLimiter, getRateLimitKey, RATE_LIMIT_CONFIG } from '@/lib/security/rate-limit'
+import { getClientIp, hashIpAddress } from '@/lib/security/voter'
 
 const PreviewInputSchema = z.object({ url: z.string().url().max(2048) })
 const MAX_RESPONSE_BYTES = 1024 * 1024
@@ -73,6 +75,18 @@ function clean(value: string | null) {
 }
 
 export async function POST(request: Request) {
+  const limiter = getConfiguredRateLimiter()
+  if (limiter) {
+    const clientIp = getClientIp(request)
+    const ipHash = hashIpAddress(clientIp)
+    const key = getRateLimitKey(['preview', ipHash || 'anonymous'])
+    const decision = await limiter.check(key, RATE_LIMIT_CONFIG.preview.limit, RATE_LIMIT_CONFIG.preview.windowSeconds)
+    if (!decision.allowed) {
+      const headers = decision.retryAfter ? { 'Retry-After': String(decision.retryAfter) } : undefined
+      return NextResponse.json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many preview requests. Please wait a moment.' } }, { status: 429, headers })
+    }
+  }
+
   const parsed = PreviewInputSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ success: false, error: { code: 'INVALID_URL', message: 'Enter a valid public website URL.' } }, { status: 400 })
   try {

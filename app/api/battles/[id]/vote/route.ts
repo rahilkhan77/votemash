@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { submitVote } from '@/lib/db/queries'
+import { getConfiguredRateLimiter, getRateLimitKey, RATE_LIMIT_CONFIG } from '@/lib/security/rate-limit'
 import { getVoterTokenFromCookies, hashVoterToken, hashIpAddress, hashUserAgent, getClientIp, getUserAgent } from '@/lib/security/voter'
 import { VoteInputSchema } from '@/lib/validation/schemas'
 
@@ -7,6 +8,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const voterToken = getVoterTokenFromCookies(request)
     if (!voterToken) return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Voter token not found' } }, { status: 401 })
+
+    const limiter = getConfiguredRateLimiter()
+    if (limiter) {
+      const ipHash = hashIpAddress(getClientIp(request))
+      const voteKey = getRateLimitKey(['vote', ipHash || 'anonymous', hashVoterToken(voterToken)])
+      const decision = await limiter.check(voteKey, RATE_LIMIT_CONFIG.vote.limit, RATE_LIMIT_CONFIG.vote.windowSeconds)
+      if (!decision.allowed) {
+        const headers = decision.retryAfter ? { 'Retry-After': String(decision.retryAfter) } : undefined
+        return NextResponse.json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many vote attempts. Please slow down.' } }, { status: 429, headers })
+      }
+    }
+
     const validation = VoteInputSchema.safeParse(await request.json())
     if (!validation.success) return NextResponse.json({ success: false, error: { code: 'INVALID_INPUT', message: 'Invalid request body' } }, { status: 400 })
     const { id: battleId } = await params

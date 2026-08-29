@@ -29,15 +29,24 @@ const participants = [
 
 function createRoundRobinSchedule(participantIds: string[]) {
   const schedule: Array<{ participantA: string; participantB: string; order: number }> = []
+  const sideCounts = new Map(participantIds.map((participantId) => [participantId, 0]))
+  const rotating = participantIds.slice(1)
   let order = 0
 
-  for (let left = 0; left < participantIds.length; left += 1) {
-    for (let right = left + 1; right < participantIds.length; right += 1) {
-      const participantA = (left + right) % 2 === 0 ? participantIds[left] : participantIds[right]
-      const participantB = participantA === participantIds[left] ? participantIds[right] : participantIds[left]
+  for (let round = 0; round < participantIds.length - 1; round += 1) {
+    const positions = [participantIds[0], ...rotating]
+    for (let match = 0; match < positions.length / 2; match += 1) {
+      const first = positions[match]
+      const second = positions[positions.length - 1 - match]
+      const firstA = sideCounts.get(first) || 0
+      const secondA = sideCounts.get(second) || 0
+      const participantA = firstA <= secondA ? first : second
+      const participantB = participantA === first ? second : first
       schedule.push({ participantA, participantB, order })
+      sideCounts.set(participantA, (sideCounts.get(participantA) || 0) + 1)
       order += 1
     }
+    rotating.unshift(rotating.pop() as string)
   }
 
   return schedule

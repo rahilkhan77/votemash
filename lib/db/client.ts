@@ -33,3 +33,11 @@ export async function withTransaction<T>(callback: (client: PoolClient) => Promi
 export function isUniqueViolation(error: unknown) {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === '23505')
 }
+
+export async function closePool() {
+  if (pool) {
+    await pool.end()
+    pool = undefined
+  }
+}
+

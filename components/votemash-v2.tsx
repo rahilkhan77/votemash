@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
-import { ArrowRight, Check, Copy, ImagePlus, Menu, Share2, Trophy, X, Loader } from 'lucide-react'
+import { ArrowRight, Check, Copy, Globe, ImagePlus, Menu, Share2, Trophy, X, Loader } from 'lucide-react'
 import { useNextBattle, useVote, useLeaderboard } from '@/hooks/useApi'
 
 type Category = { id: string; name: string; slug: string }
@@ -34,6 +34,379 @@ function Logo({ logo, name, large = false }: { logo: string | null; name: string
   )
 }
 
+function normalizeWebsiteUrl(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const candidate = trimmed.startsWith('@') ? `https://${trimmed.slice(1)}` : trimmed
+  try {
+    const parsed = new URL(candidate)
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
+function truncateForPreview(value: string | null | undefined, maxLength = 96) {
+  const cleaned = value?.replace(/\s+/g, ' ').trim()
+  if (!cleaned) return 'No description found.'
+  if (cleaned.length <= maxLength) return cleaned
+  const truncated = cleaned.slice(0, maxLength).trim()
+  const lastSpace = truncated.lastIndexOf(' ')
+  return lastSpace > 0 ? `${truncated.slice(0, lastSpace)}…` : `${truncated}…`
+}
+
+function getPreviewLogo(data: any) {
+  const candidates = [
+    data?.logoUrl,
+    data?.openGraphImage,
+    data?.favicon,
+  ].filter((value): value is string => Boolean(value) && typeof value === 'string' && !value.startsWith('data:'))
+
+  return candidates[0] || null
+}
+
+async function previewWebsiteMetadata(url: string, signal?: AbortSignal) {
+  const response = await fetch('/api/participants/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+    signal,
+  })
+  const payload = await response.json()
+  if (!response.ok) throw new Error(payload.error?.message || 'Could not fetch website details')
+  return payload.data
+}
+
+function HomepageEntryBar({ onOpen }: { onOpen: (websiteUrl: string, categoryId: string) => void }) {
+  const [websiteUrl, setWebsiteUrl] = useState('')
+  const [categoryId, setCategoryId] = useState('ai-tools')
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault()
+    onOpen(websiteUrl, categoryId)
+  }
+
+  return (
+    <section className="entry-bar-wrap">
+      <form className="entry-bar" onSubmit={handleSubmit}>
+        <div className="entry-bar-field">
+          <span className="entry-bar-icon" aria-hidden="true"><Globe size={18} /></span>
+          <input
+            type="url"
+            value={websiteUrl}
+            onChange={(event) => setWebsiteUrl(event.target.value)}
+            placeholder="Your product URL or @handle"
+            aria-label="Product URL or handle"
+          />
+        </div>
+        <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} aria-label="Choose a category">
+          {categories.filter((category) => category.id).map((category) => (
+            <option key={category.slug} value={category.slug}>{category.name}</option>
+          ))}
+        </select>
+        <button type="submit" className="entry-bar-button">
+          Enter <ArrowRight size={16} />
+        </button>
+      </form>
+    </section>
+  )
+}
+
+function EntryModal({ isOpen, onClose, onSuccess, initialWebsiteUrl = '', initialCategoryId = 'ai-tools' }: { isOpen: boolean; onClose: () => void; onSuccess?: () => void; initialWebsiteUrl?: string; initialCategoryId?: string }) {
+  const [step, setStep] = useState<'url' | 'form' | 'success'>('url')
+  const [form, setForm] = useState({ name: '', type: 'product', categoryId: initialCategoryId, description: '', websiteUrl: initialWebsiteUrl, logoUrl: '' })
+  const [status, setStatus] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [preview, setPreview] = useState<any>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [logoEdited, setLogoEdited] = useState(false)
+  const [price, setPrice] = useState('FREE')
+  const [previewRetryKey, setPreviewRetryKey] = useState(0)
+  const previewControllerRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const normalized = normalizeWebsiteUrl(form.websiteUrl)
+    const controller = new AbortController()
+
+    if (previewControllerRef.current) {
+      previewControllerRef.current.abort()
+    }
+    previewControllerRef.current = controller
+
+    if (!normalized) {
+      return
+    }
+
+    const timer = window.setTimeout(async () => {
+      setPreview(null)
+      setPreviewUrl('')
+      setStatus('')
+      setPreviewLoading(true)
+      try {
+        const data = await previewWebsiteMetadata(normalized, controller.signal)
+        if (controller.signal.aborted) return
+        setPreview(data)
+        setPreviewUrl(normalized)
+        setForm((current) => ({
+          ...current,
+          websiteUrl: normalized,
+          name: current.name || data.siteName || data.title || '',
+          description: current.description || data.description || '',
+          logoUrl: logoEdited ? current.logoUrl : data.logoUrl || current.logoUrl || '',
+        }))
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setPreview(null)
+        setPreviewUrl('')
+        setStatus("Couldn't fetch website details. You can enter them manually.")
+      } finally {
+        if (!controller.signal.aborted) setPreviewLoading(false)
+      }
+    }, 500)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+      if (previewControllerRef.current === controller) previewControllerRef.current = null
+    }
+  }, [form.websiteUrl, isOpen, logoEdited, previewRetryKey])
+
+  const uploadLogo = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setStatus('Logo must be a PNG, JPEG, or WebP under 2 MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setLogoEdited(true)
+      setForm((current) => ({ ...current, logoUrl: typeof reader.result === 'string' ? reader.result : current.logoUrl }))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleContinueFromUrl = () => {
+    if (!form.websiteUrl || previewLoading) return
+    setStep('form')
+  }
+
+  const handleRetryPreview = () => {
+    const normalized = normalizeWebsiteUrl(form.websiteUrl)
+    if (!normalized) return
+    setStatus('')
+    setPreview(null)
+    setPreviewUrl('')
+    setPreviewRetryKey((value) => value + 1)
+  }
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setStatus('')
+    try {
+      const response = await fetch('/api/participants', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error?.message || 'Submission failed')
+      if (data.data.checkoutUrl) {
+        window.location.assign(data.data.checkoutUrl)
+        return
+      }
+      setStep('success')
+      setForm({ name: '', type: 'product', categoryId: initialCategoryId, description: '', websiteUrl: '', logoUrl: '' })
+      setPreview(null)
+      onSuccess?.()
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Submission failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (!isOpen) return null
+
+  const normalizedWebsiteUrl = normalizeWebsiteUrl(form.websiteUrl)
+  const previewLogo = preview ? getPreviewLogo(preview) : null
+  const effectiveName = (preview?.siteName || preview?.title || form.name || 'Untitled product').trim() || 'Untitled product'
+  const effectiveDescription = (preview?.description || form.description || 'No description found.').trim() || 'No description found.'
+  const previewWebsite = normalizedWebsiteUrl ? new URL(normalizedWebsiteUrl).hostname.replace(/^www\./, '') : 'website.com'
+
+  return (
+    <div className="entry-modal-overlay" onClick={onClose}>
+      <div className="entry-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="entry-modal-close" onClick={onClose} aria-label="Close">
+          <X size={20} />
+        </button>
+
+        {step === 'url' && (
+          <div className="entry-modal-content">
+            <h2>Enter your product</h2>
+            <p>Start with your website URL</p>
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  required
+                  type="url"
+                  placeholder="Your product URL"
+                  value={form.websiteUrl}
+                  onChange={(event) => {
+                    const nextValue = event.target.value
+                    setForm({ ...form, websiteUrl: nextValue })
+                    setStatus('')
+                    setPreview(null)
+                    setPreviewUrl('')
+                    if (!normalizeWebsiteUrl(nextValue)) {
+                      setPreviewLoading(false)
+                    }
+                  }}
+                  style={{ flex: 1 }}
+                />
+                <button type="button" onClick={handleContinueFromUrl} disabled={!form.websiteUrl || previewLoading} className="entry-continue-btn">
+                  {previewLoading ? <Loader size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                </button>
+              </div>
+
+              {previewLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: '#f5f4f7', borderRadius: '10px', color: '#4f4a59', fontSize: '13px' }}>
+                  <Loader size={14} className="animate-spin" />
+                  <span>Fetching website details...</span>
+                </div>
+              )}
+
+              {preview && previewUrl === normalizedWebsiteUrl && (
+                <div style={{ display: 'grid', gap: '10px', padding: '12px', border: '1px solid #e8e5ee', borderRadius: '12px', background: '#fff', boxShadow: '0 8px 18px rgba(23,21,30,0.03)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                    <span style={{ fontSize: '11px', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#777480', fontWeight: '700' }}>Here&apos;s what we found</span>
+                    <span style={{ fontSize: '11px', color: '#777480' }}>Fetched from your website</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    {previewLogo ? (
+                      <div style={{ width: '42px', height: '42px', minWidth: '42px', borderRadius: '10px', overflow: 'hidden', border: '1px solid #e8e5ee', background: '#f5f4f7', display: 'grid', placeItems: 'center' }}>
+                        <Image src={previewLogo} alt={effectiveName} width={42} height={42} unoptimized loader={({ src }) => src} onError={(event) => { event.currentTarget.style.display = 'none' }} />
+                      </div>
+                    ) : (
+                      <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: '#f1edff', color: '#7657d9', display: 'grid', placeItems: 'center', fontWeight: '700', fontSize: '12px' }}>
+                        {effectiveName.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: '700', fontSize: '14px', lineHeight: '1.25', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{truncateForPreview(effectiveName, 52)}</div>
+                      <div style={{ fontSize: '12px', color: '#666', marginTop: '2px', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{truncateForPreview(effectiveDescription, 72)}</div>
+                      <div style={{ fontSize: '11px', color: '#777480', marginTop: '4px' }}>{previewWebsite}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button type="button" className="entry-secondary-btn" onClick={() => setStep('form')}>Edit details</button>
+                    <button type="button" className="entry-continue-btn" onClick={handleContinueFromUrl}>Continue <ArrowRight size={16} /></button>
+                  </div>
+                </div>
+              )}
+
+              {!previewLoading && status && (
+                <div style={{ display: 'grid', gap: '8px', padding: '10px 12px', background: '#fff5f3', border: '1px solid #f1d7d3', borderRadius: '10px', color: '#5a2e2a', fontSize: '13px' }}>
+                  <div>{status}</div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="button" className="entry-secondary-btn" onClick={handleRetryPreview}>Try again</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {step === 'form' && (
+          <form onSubmit={submit} style={{ display: 'grid', gap: '12px' }}>
+            <div className="entry-modal-content">
+              <h2>Almost there</h2>
+              <p>Complete your submission</p>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>Product Name</label>
+                <input required placeholder="Product name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>Description</label>
+                <textarea required placeholder="Describe your product" maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} style={{ minHeight: '80px' }} />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>Logo</label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input type="file" accept="image/png,image/jpeg,image/webp" aria-label="Upload logo" onChange={uploadLogo} style={{ flex: 1 }} />
+                  {form.logoUrl && <ImagePlus size={18} />}
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>What are you entering?</label>
+                <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}>
+                  <option value="product">Product</option>
+                  <option value="startup">Startup</option>
+                  <option value="ai_tool">AI Tool</option>
+                  <option value="developer_tool">Developer Tool</option>
+                  <option value="app">App</option>
+                  <option value="game">Game</option>
+                  <option value="design_tool">Design Tool</option>
+                  <option value="brand">Brand</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', marginBottom: '4px' }}>Choose a category</label>
+                <select value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}>
+                  {categories.filter((category) => category.id).map((category) => (
+                    <option key={category.slug} value={category.slug}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', color: '#666' }}>Entry price</div>
+                <div style={{ fontSize: '20px', fontWeight: '600' }}>{price}</div>
+              </div>
+
+              {status && <p style={{ fontSize: '14px', color: '#d32f2f' }}>{status}</p>}
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button type="button" onClick={() => setStep('url')} style={{ flex: 1 }} className="entry-secondary-btn">
+                  Back
+                </button>
+                <button type="submit" disabled={submitting} style={{ flex: 1 }}>
+                  {submitting ? 'Submitting...' : 'Enter League'}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {step === 'success' && (
+          <div className="entry-modal-content">
+            <div style={{ textAlign: 'center' }}>
+              <h2>You&apos;re in</h2>
+              <p>Your product has entered the league.</p>
+              <div style={{ marginTop: '24px' }}>
+                <Link href={`/p/${form.name.toLowerCase().replace(/\s+/g, '-')}`} className="entry-success-link">
+                  View your profile <ArrowRight size={16} />
+                </Link>
+              </div>
+            </div>
+            <button onClick={onClose} style={{ marginTop: '16px', width: '100%' }}>
+              Close
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function Header() {
   const [open, setOpen] = useState(false)
 
@@ -47,11 +420,9 @@ function Header() {
         <nav>
           <Link href="/">Battles</Link>
           <Link href="/leaderboard">Leaderboard</Link>
+          <Link href="/how-it-works">How It Works</Link>
         </nav>
         <div className="header-actions">
-          <Link className="league-link" href="/enter">
-            Enter the League <ArrowRight size={16} />
-          </Link>
           <button className="mobile-menu" aria-label="Toggle menu" onClick={() => setOpen(!open)}>
             {open ? <X /> : <Menu />}
           </button>
@@ -120,20 +491,68 @@ function LeagueStatus({ leagueEndAt, categoryName }: { leagueEndAt: string | nul
 
 function Champion() {
   const [spotlight, setSpotlight] = useState<any>(null)
+  const [participant, setParticipant] = useState<any>(null)
 
   useEffect(() => {
-    fetch('/api/spotlight').then((response) => response.json()).then((payload) => setSpotlight(payload.data || null)).catch(() => setSpotlight(null))
+    let cancelled = false
+
+    const loadSpotlight = async () => {
+      try {
+        const response = await fetch('/api/spotlight')
+        const payload = await response.json()
+        const activeSpotlight = payload.data || null
+        if (cancelled) return
+        setSpotlight(activeSpotlight)
+
+        if (!activeSpotlight?.participants?.slug) {
+          setParticipant(null)
+          return
+        }
+
+        const participantResponse = await fetch(`/api/participants/${activeSpotlight.participants.slug}`)
+        const participantPayload = await participantResponse.json()
+        if (!cancelled) setParticipant(participantPayload.data || null)
+      } catch {
+        if (!cancelled) {
+          setSpotlight(null)
+          setParticipant(null)
+        }
+      }
+    }
+
+    void loadSpotlight()
+    return () => { cancelled = true }
   }, [])
 
+  const championName = spotlight?.participants?.name || participant?.name || ''
+  const championLogo = spotlight?.participants?.logo_url || participant?.logo_url || null
+  const championWebsite = normalizeWebsiteUrl(participant?.website_url || '')
+  const categoryName = participant?.categories?.name || '48H LEAGUE'
+
   return (
-    <section className="champion">
+    <section className={`champion ${spotlight ? 'champion-active' : 'champion-empty-state'}`}>
       <div className="champion-label">
         <Trophy size={15} /> CHAMPION SPOTLIGHT
       </div>
-      <div className="champion-empty">
-        <strong>{spotlight?.participants?.name || 'Winner gets featured here for 48 hours.'}</strong>
-        <span>{spotlight?.participants?.description || 'Every vote matters.'}</span>
-      </div>
+      {spotlight ? (
+        <div className="champion-feature">
+          <Logo logo={championLogo} name={championName || 'Champion'} large />
+          <div className="champion-feature-copy">
+            <strong>{championName || 'Current champion'}</strong>
+            <span>#1 — {categoryName} / 48H LEAGUE</span>
+            <small>Featured for 48 hours</small>
+          </div>
+          {championWebsite ? (
+            <a href={championWebsite} target="_blank" rel="noopener noreferrer" className="champion-visit">
+              Visit website <ArrowRight size={15} />
+            </a>
+          ) : null}
+        </div>
+      ) : (
+        <div className="champion-empty">
+          <strong>Win this league and your product gets featured here for 48 hours.</strong>
+        </div>
+      )}
     </section>
   )
 }
@@ -185,6 +604,9 @@ function BattleView({ categorySlug, setCategorySlug }: { categorySlug: string; s
   const { battle, loading, error, refetch } = useNextBattle(categorySlug === 'all' ? undefined : categorySlug)
   const { vote, loading: voting, result } = useVote(battle?.id || '')
   const [transitioning, setTransitioning] = useState(false)
+  const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0)
+  const [entryOpen, setEntryOpen] = useState(false)
+  const [entrySeed, setEntrySeed] = useState({ websiteUrl: '', categoryId: 'ai-tools' })
 
   const category = categories.find((c) => c.slug === categorySlug) || categories[0]
 
@@ -240,13 +662,20 @@ function BattleView({ categorySlug, setCategorySlug }: { categorySlug: string; s
     )
   }
 
-  const handleVote = (participantId: string) => {
+  const handleVote = async (participantId: string) => {
     if (voting || result || transitioning) return
-    vote(participantId)
+    if (await vote(participantId)) setLeaderboardRefreshKey((key) => key + 1)
+  }
+
+  const handleEntryOpen = (websiteUrl: string, categoryId: string) => {
+    setEntrySeed({ websiteUrl, categoryId })
+    setEntryOpen(true)
   }
 
   return (
     <>
+      <HomepageEntryBar onOpen={handleEntryOpen} />
+      <EntryModal key={`${entryOpen ? 'open' : 'closed'}-${entrySeed.websiteUrl}-${entrySeed.categoryId}`} isOpen={entryOpen} onClose={() => setEntryOpen(false)} initialWebsiteUrl={entrySeed.websiteUrl} initialCategoryId={entrySeed.categoryId} />
       <Champion />
       <main className={`battle-section ${transitioning ? 'battle-transitioning' : ''}`}>
         <LeagueStatus leagueEndAt={battle.leagueEndAt} categoryName={category.name} />
@@ -254,7 +683,7 @@ function BattleView({ categorySlug, setCategorySlug }: { categorySlug: string; s
         <h1>Which one wins?</h1>
         <p className="battle-subtitle">Choose one. The internet decides.</p>
         <div className="battle-grid">
-          <button className={`battle-card ${result?.winner === battle.participantA.id ? 'selected' : ''}`} onClick={() => handleVote(battle.participantA.id)} disabled={Boolean(result) || transitioning || voting}>
+          <button className={`battle-card ${result?.winner === battle.participantA.id ? 'selected' : ''} ${result && result.winner !== battle.participantA.id ? 'secondary' : ''}`} onClick={() => handleVote(battle.participantA.id)} disabled={Boolean(result) || transitioning || voting}>
             <Logo logo={battle.participantA.logo} name={battle.participantA.name} large />
             <span className="section-kicker">Product</span>
             <h2>{battle.participantA.name}</h2>
@@ -263,7 +692,7 @@ function BattleView({ categorySlug, setCategorySlug }: { categorySlug: string; s
           <div className="versus" aria-hidden="true">
             VS
           </div>
-          <button className={`battle-card ${result?.winner === battle.participantB.id ? 'selected' : ''}`} onClick={() => handleVote(battle.participantB.id)} disabled={Boolean(result) || transitioning || voting}>
+          <button className={`battle-card ${result?.winner === battle.participantB.id ? 'selected' : ''} ${result && result.winner !== battle.participantB.id ? 'secondary' : ''}`} onClick={() => handleVote(battle.participantB.id)} disabled={Boolean(result) || transitioning || voting}>
             <Logo logo={battle.participantB.logo} name={battle.participantB.name} large />
             <span className="section-kicker">Product</span>
             <h2>{battle.participantB.name}</h2>
@@ -289,15 +718,15 @@ function BattleView({ categorySlug, setCategorySlug }: { categorySlug: string; s
               View full board <ArrowRight size={14} />
             </Link>
           </div>
-          <LeaderboardPreview categorySlug={categorySlug === 'all' ? undefined : categorySlug} />
+          <LeaderboardPreview categorySlug={categorySlug === 'all' ? undefined : categorySlug} refreshKey={leaderboardRefreshKey} />
         </section>
       </main>
     </>
   )
 }
 
-function LeaderboardPreview({ categorySlug }: { categorySlug?: string }) {
-  const { data, loading } = useLeaderboard(categorySlug, 5)
+function LeaderboardPreview({ categorySlug, refreshKey }: { categorySlug?: string; refreshKey?: number }) {
+  const { data, loading } = useLeaderboard(categorySlug, 5, refreshKey)
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '20px' }}>Loading leaderboard...</div>
@@ -349,30 +778,52 @@ function EnterLeague() {
   const [previewUrl, setPreviewUrl] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
   const [logoEdited, setLogoEdited] = useState(false)
+  const previewControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    const parsed = form.websiteUrl ? (() => { try { return new URL(form.websiteUrl) } catch { return null } })() : null
-    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) return
+    const normalizedUrl = normalizeWebsiteUrl(form.websiteUrl)
+    if (!normalizedUrl) return
+
+    const controller = new AbortController()
+    if (previewControllerRef.current) {
+      previewControllerRef.current.abort()
+    }
+    previewControllerRef.current = controller
 
     const timer = window.setTimeout(async () => {
-      setPreviewLoading(true)
+      setPreview(null)
+      setPreviewUrl('')
       setStatus('')
+      setPreviewLoading(true)
       try {
-        const response = await fetch('/api/participants/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: form.websiteUrl }) })
-        const payload = await response.json()
-        if (!response.ok) throw new Error(payload.error?.message || 'Could not fetch website details')
-        setPreview(payload.data)
-        setPreviewUrl(form.websiteUrl)
-        setForm((current) => ({ ...current, name: current.name || payload.data.siteName || payload.data.title || '', description: current.description || payload.data.description || '' , logoUrl: logoEdited ? current.logoUrl : payload.data.logoUrl || '' }))
+        const data = await previewWebsiteMetadata(normalizedUrl, controller.signal)
+        if (controller.signal.aborted) return
+        setPreview(data)
+        setPreviewUrl(normalizedUrl)
+        setForm((current) => ({
+          ...current,
+          websiteUrl: normalizedUrl,
+          name: current.name || data.siteName || data.title || '',
+          description: current.description || data.description || '',
+          logoUrl: logoEdited ? current.logoUrl : data.logoUrl || current.logoUrl || '',
+        }))
       } catch (error) {
+        if (controller.signal.aborted) return
         setPreview(null)
+        setPreviewUrl('')
         setStatus("Couldn't fetch website details. You can enter them manually.")
       } finally {
-        setPreviewLoading(false)
+        if (!controller.signal.aborted) setPreviewLoading(false)
       }
     }, 500)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+      if (previewControllerRef.current === controller) {
+        previewControllerRef.current = null
+      }
+    }
   }, [form.websiteUrl, logoEdited])
 
   const uploadLogo = (event: ChangeEvent<HTMLInputElement>) => {
@@ -431,7 +882,16 @@ function EnterLeague() {
       </div>
       <div className="price-card entry-form" style={{ textAlign: 'center', padding: '40px' }}>
         <form onSubmit={submit} style={{ display: 'grid', gap: '12px', textAlign: 'left' }}>
-          <input required type="url" placeholder="Website URL" value={form.websiteUrl} onChange={(event) => setForm({ ...form, websiteUrl: event.target.value })} />
+          <input required type="url" placeholder="Website URL" value={form.websiteUrl} onChange={(event) => {
+            const nextValue = event.target.value
+            setForm({ ...form, websiteUrl: nextValue })
+            setStatus('')
+            setPreview(null)
+            setPreviewUrl('')
+            if (!normalizeWebsiteUrl(nextValue)) {
+              setPreviewLoading(false)
+            }
+          }} />
           {previewLoading && <p aria-live="polite">Fetching website details...</p>}
           {preview && previewUrl === form.websiteUrl && (
             <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -470,13 +930,15 @@ function Profile({ slug }: { slug: string }) {
     }).catch((reason) => setError(reason instanceof Error ? reason.message : 'Profile unavailable'))
   }, [slug])
 
+  const websiteUrl = normalizeWebsiteUrl(participant?.website_url || '')
+
   return (
     <main className="profile-page">
       <div className="subpage-title">
         <span className="section-kicker">PARTICIPANT</span>
         <h1>{participant?.name || (error ? 'Profile unavailable' : 'Loading...')}</h1>
         <p>{participant?.description || error}</p>
-        {participant?.website_url && <a href={participant.website_url} target="_blank" rel="noreferrer">Visit website</a>}
+        {websiteUrl && <a href={websiteUrl} target="_blank" rel="noopener noreferrer">Visit website</a>}
       </div>
     </main>
   )
